@@ -3,6 +3,10 @@ import struct
 import xml.etree.ElementTree as ET
 import time 
 import csv
+from datetime import datetime
+import pandas as pd
+import requests
+
 
 # --- CONFIGURATION ---
 HOST = '127.0.0.1'  # Replace with FaceReader IP if remote
@@ -45,7 +49,6 @@ def send_action_message(sock, action_type: str, msg_id: str = "ID001", informati
     sock.sendall(packet)
     print(f"Sent: {action_type}")
 
-
 def read_response(sock):
     """
     Read and print one full XML response from the socket.
@@ -73,11 +76,12 @@ def read_response(sock):
         print("Failed to parse XML:", e)
         return None
 
-def log_classification_to_csv(root):
+
+
+def log_classification_to_csv(root, csv_path):
     frame = root.find("FrameNumber").text if root.find("FrameNumber") is not None else "?"
     ticks = root.find("FrameTimeTicks").text if root.find("FrameTimeTicks") is not None else "?"
-    CSV_FILENAME = "test"
-    with open(CSV_FILENAME, mode='a', newline='', encoding='utf-8') as file:
+    with open(csv_path, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         for val in root.findall(".//ClassificationValue"):
             # print(val)
@@ -94,7 +98,7 @@ def log_classification_to_csv(root):
                 writer.writerow([frame, ticks, label, typ, state])
 
 
-def receive_and_log(sock):
+def receive_and_log(sock, csv_path):
     while True:
         header = sock.recv(4)
         if not header:
@@ -118,11 +122,61 @@ def receive_and_log(sock):
         try:
             root = ET.fromstring(xml_data)
             if root.tag == "Classification":
-                log_classification_to_csv(root)
+                log_classification_to_csv(root,csv_path)
+                break
         except Exception as e:
             print("XML parsing error:", e)
             continue
+
+
+
+def push_to_server(server_url,csv_path):
+    column_names = ['Frame', 'Timestamp', 'Feature', 'Attribute', 'Value']
+    # Read the CSV file without headers and assign column names
+    try:
+        df = pd.read_csv(csv_path, header=None, names=column_names)
+    except Exception as e:
+        print(f"Failed to read CSV: {e}")
+        return
+    
+    if len(df) == 0:
+        return 
+    
+    emotions = ['Neutral', 'Happy', 'Sad', 'Angry', 'Surprised', 'Scared', 'Disgusted']
+
+    # Filter rows corresponding to emotions
+    emotion_df = df[
+        (df['Attribute'] == 'Value') &
+        (df['Feature'].isin(emotions))
+    ]
+    max_idx = emotion_df['Value'].astype(float).idxmax()
+
+    # Retrieve the dominant emotion and its intensity
+    dominant_emotion = emotion_df.loc[max_idx, 'Feature']
+    dominant_value = float(emotion_df.loc[max_idx, 'Value'])
         
+    # Extract valence value
+    valence_row = df[(df['Feature'] == 'Valence') & (df['Attribute'] == 'Value')]
+    valence = float(valence_row['Value'].values[0]) if not valence_row.empty else None
+
+    # Extract arousal value
+    arousal_row = df[(df['Feature'] == 'Arousal') & (df['Attribute'] == 'Value')]
+    arousal = float(arousal_row['Value'].values[0]) if not arousal_row.empty else None
+    
+    
+    ## MAKE MESSAGE
+    emotion_message = dominant_emotion
+    emotion_data = {
+        emotion_message: valence  # Adjust the key to match your CSV column name
+    }
+    # Send a POST request to the server
+    response = requests.post(server_url + "/submit_emotion", json=emotion_data)
+    # Print the server's response
+    print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
+
+server_url = "https://7cd3-193-205-130-187.ngrok-free.app/"
+CSV_FILENAME = "test.csv"
+
 
 # --- MAIN FLOW ---
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -133,21 +187,21 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
     # Optional: listen to response
     read_response(s)
-    time.sleep(3)
-    # Example: start receiving logs
-    send_action_message(s, "FaceReader_Start_DetailedLogSending")
-    
-    try:
-        receive_and_log(s)
-    except KeyboardInterrupt:
-        print("Stopping...")
-        send_action(s, "FaceReader_Stop_DetailedLogSending")
-        send_action(s, "FaceReader_Stop_Analyzing")
+    while True:
+        time.sleep(1)
+        
+        timestamp_path = datetime.now().timestamp()
+        csv_path = f"logs/data_{timestamp_path}.csv"
 
-    # response = read_response(s)
-    # print("RESPONSE", response)
-    # # You can now stay connected and continuously read classification messages
-    # # To stop, you could send:
-    # time.sleep(2)
-    # send_action_message(s, "FaceReader_Stop_DetailedLogSending")
-    # send_action_message(s, "FaceReader_Stop_Analyzing")
+        # print(timestamp)
+        # exit()
+        # Example: start receiving logs
+        send_action_message(s, "FaceReader_Start_DetailedLogSending")
+        
+        try:
+            receive_and_log(s,csv_path)
+            push_to_server(server_url,csv_path)
+            send_action_message(s, "FaceReader_Stop_DetailedLogSending")
+        except KeyboardInterrupt:
+            print("Stopping...")
+            send_action_message(s, "FaceReader_Stop_Analyzing")
