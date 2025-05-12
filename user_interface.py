@@ -5,6 +5,7 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from FaceReaderConnector import FaceReaderConnector
+from config import *
 
 
 class FaceReaderApp(App):
@@ -42,7 +43,6 @@ class FaceReaderApp(App):
         # Row 1: Title spanning two columns
         # grid_layout.add_widget()
         # grid_layout.add_widget(Label())  # Empty widget to fill the second column
-
         # Row 2: Connect and Disconnect buttons
         grid_layout.add_widget(Button(text='Connect to Face Reader', on_press = self.connect_to_face_reader))
         grid_layout.add_widget(Button(text='Disconnect from Face Reader', on_press = self.disconnect_from_face_reader))
@@ -65,8 +65,8 @@ class FaceReaderApp(App):
 
 if __name__ == '__main__':
     connector = FaceReaderConnector(
-        host='127.0.0.1',
-        port=9090,
+        host=HOST,
+        port=PORT,
         server_url = "https://7cd3-193-205-130-187.ngrok-free.app/",
         log_dir='logs'
     )
