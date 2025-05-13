@@ -2,14 +2,14 @@ import socket
 import struct
 import xml.etree.ElementTree as ET
 import time
-import csv
+import csv, json
 from datetime import datetime
 import pandas as pd
 import requests
 import os
 
 class FaceReaderConnector:
-    def __init__(self, host='127.0.0.1', port=9090, server_url=None, log_dir='logs'):
+    def __init__(self, host=None, port=None, server_url=None, log_dir='logs'):
         self.host = host
         self.port = port
         self.server_url = server_url
@@ -39,7 +39,6 @@ class FaceReaderConnector:
         type_bytes = message_type.encode('utf-8')
         xml_bytes = xml_string.encode('utf-8')
         type_length = len(type_bytes)
-
         message_bytes = struct.pack('<I', type_length) + type_bytes + xml_bytes
         packet_length = len(message_bytes) + 4
         return struct.pack('<I', packet_length) + message_bytes
@@ -47,10 +46,10 @@ class FaceReaderConnector:
     def send_action_message(self, action_type: str, msg_id: str = "ID001", information: list[str] = None):
         """Send an action message (e.g., start analyzing, request stimuli)."""
         xml = f"""<?xml version="1.0" encoding="utf-8"?>
-<ActionMessage xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <Id>{msg_id}</Id>
-  <ActionType>{action_type}</ActionType>"""
+                    <ActionMessage xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                                xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+                    <Id>{msg_id}</Id>
+                    <ActionType>{action_type}</ActionType>"""
         if information:
             xml += "\n  <Information>\n"
             for item in information:
@@ -175,6 +174,13 @@ class FaceReaderConnector:
         }
 
 
+    def set_log_dir(self, user_name):
+        self.log_dir = f"logs/{user_name}"
+        os.makedirs(self.log_dir, exist_ok = True)
+        response = requests.post(self.server_url  + "/set_current_user", json={"user_name":user_name})
+        print(response)
+            
+
     def run_analysis_session(self):
         """
         Manages the analysis session: connects to FaceReader, starts analysis,
@@ -199,18 +205,15 @@ class FaceReaderConnector:
             self.send_action_message("FaceReader_Stop_Analyzing")
         finally:
             self.disconnect()
-    
+
 
 
 if __name__ == '__main__':
+    config_data = json.load(open("config.json"))
+    
     connector = FaceReaderConnector(
-        host='127.0.0.1',
-        port=9090,
-        server_url = "https://7cd3-193-205-130-187.ngrok-free.app/",
+        host=config_data["HOST"],
+        port=config_data["PORT"],
+        server_url = config_data["SERVER_URL"],
         log_dir='logs'
     )
-    # connector.run_analysis_session()
-    # connector.connect()
-    # connector.send_action_message("FaceReader_Start_Analyzing")
-    # connector.read_response()  # Optional: read initial response
-
