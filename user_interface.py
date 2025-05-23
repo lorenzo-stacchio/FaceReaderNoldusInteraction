@@ -6,14 +6,17 @@ from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from FaceReaderConnector import FaceReaderConnector
 import json 
+import threading
 
 class FaceReaderApp(App):
     
     def __init__(self, FaceReaderCon: FaceReaderConnector, **kwargs):
         super().__init__(**kwargs)
         self.FaceReaderCon = FaceReaderCon
-    ### CONNECTION SUITE
+        self.global_session = None
     
+    
+    ### CONNECTION SUITE
     def connect_to_face_reader(self, instance):
         try:
             self.FaceReaderCon.connect()
@@ -28,15 +31,21 @@ class FaceReaderApp(App):
 
     def send_to_server(self, instance):
         # Implement the logic to send data to the server
-        pass
-    
+        self.global_session = threading.Thread(target=self.FaceReaderCon.start_session)
+        self.global_session.start()
+        
+    def stop_send_to_server(self, instance):
+        # Implement the logic to stop sending data to the server
+        self.FaceReaderCon.stop_session()
+        self.global_session.join()
+        print("ciao")
+
+        
     def set_log_dir(self, instance):
         self.FaceReaderCon.set_log_dir(f"{self.log_name.text}")
         self.log_input.text = f"Name and surname set to: {self.log_name.text}"
     
-    def stop_send_to_server(self, instance):
-        # Implement the logic to stop sending data to the server
-        pass
+    
     
     def build(self):
         main_layout = BoxLayout(orientation='vertical', spacing=1)
@@ -59,8 +68,8 @@ class FaceReaderApp(App):
         grid_layout.add_widget(Button(text='Disconnect from Face Reader', on_press = self.disconnect_from_face_reader))
 
         # Row 3: Send and Stop buttons
-        grid_layout.add_widget(Button(text='Send to Server'))
-        grid_layout.add_widget(Button(text='Stop Sending to Server'))
+        grid_layout.add_widget(Button(text='Send to Server', on_press = self.send_to_server))
+        grid_layout.add_widget(Button(text='Stop Sending to Server', on_press = self.stop_send_to_server))
 
         
         # Row 4: Log field spanning two columns using BoxLayout

@@ -7,6 +7,7 @@ from datetime import datetime
 import pandas as pd
 import requests
 import os
+import threading
 
 class FaceReaderConnector:
     def __init__(self, host=None, port=None, server_url=None, log_dir='logs'):
@@ -16,6 +17,7 @@ class FaceReaderConnector:
         self.log_dir = log_dir
         os.makedirs(self.log_dir, exist_ok=True)
         self.sock = None
+        self.log_enabled_global = False
 
     def connect(self):
         """Establish a connection to the FaceReader server."""
@@ -86,7 +88,7 @@ class FaceReaderConnector:
             print("Failed to parse XML:", e)
             return None
 
-    def log_classification_to_csv(self, root, csv_path):
+    def log_classification_to_csv(self, root, csv_path, timestamp_actual):
         frame = root.find("FrameNumber").text if root.find("FrameNumber") is not None else "?"
         ticks = root.find("FrameTimeTicks").text if root.find("FrameTimeTicks") is not None else "?"
         with open(csv_path, mode='a', newline='', encoding='utf-8') as file:
@@ -97,13 +99,13 @@ class FaceReaderConnector:
                 if typ == "Value":
                     value = val.find("Value/float")
                     value = value.text if value is not None else ""
-                    writer.writerow([frame, ticks, label, typ, value])
+                    writer.writerow([frame, ticks, label, typ, value, timestamp_actual])
                 elif typ == "State":
                     state = val.find("State/string")
                     state = state.text if state is not None else ""
-                    writer.writerow([frame, ticks, label, typ, state])
+                    writer.writerow([frame, ticks, label, typ, state, timestamp_actual])
 
-    def receive_and_log(self, csv_path):
+    def receive_and_log(self, csv_path, timestamp_actual):
         while True:
             header = self.sock.recv(4)
             if not header:
@@ -127,14 +129,14 @@ class FaceReaderConnector:
             try:
                 root = ET.fromstring(xml_data)
                 if root.tag == "Classification":
-                    self.log_classification_to_csv(root, csv_path)
+                    self.log_classification_to_csv(root, csv_path, timestamp_actual)
                     break
             except Exception as e:
                 print("XML parsing error:", e)
                 continue
 
     def push_to_server(self, csv_path):
-        column_names = ['Frame', 'Timestamp', 'Feature', 'Attribute', 'Value']
+        column_names = ['Frame', 'FrameTicks', 'Feature', 'Attribute', 'Value', 'Timestamp']
         try:
             df = pd.read_csv(csv_path, header=None, names=column_names)
         except Exception as e:
@@ -181,6 +183,47 @@ class FaceReaderConnector:
         print(response)
             
 
+    def start_session(self):
+        """
+        Manages the analysis session: connects to FaceReader, starts analysis,
+        receives logs, pushes data to the server, and stops analysis.
+        """
+        
+        try:
+            self.send_action_message("FaceReader_Start_Analyzing")
+            self.read_response()  # Optional: read initial response
+            self.log_enabled_global = True
+            timestamp_beginning = datetime.now().timestamp()
+            csv_path = os.path.join(self.log_dir, f"data_{timestamp_beginning}.csv")
+            
+            while self.log_enabled_global:
+                time.sleep(1) ## TODO: controllare qui
+                self.send_action_message("FaceReader_Start_DetailedLogSending")
+                timestamp_actual = datetime.now().timestamp()
+                self.receive_and_log(csv_path, timestamp_actual)
+                self.push_to_server(csv_path)
+                self.send_action_message("FaceReader_Stop_DetailedLogSending")
+                if not self.log_enabled_global:
+                    break
+               
+        except KeyboardInterrupt:
+            print("Analysis session interrupted by user.")
+            self.send_action_message("FaceReader_Stop_Analyzing")
+        finally:
+            self.disconnect()
+
+
+    def stop_session(self):
+        try:
+            self.send_action_message("FaceReader_Stop_Analyzing")
+            self.log_enabled_global = False
+            # self.disconnect()
+        except KeyboardInterrupt:
+            print("Error.")
+        # finally:
+        #     self.disconnect()
+
+
     def run_analysis_session(self):
         """
         Manages the analysis session: connects to FaceReader, starts analysis,
@@ -190,11 +233,13 @@ class FaceReaderConnector:
             self.connect()
             self.send_action_message("FaceReader_Start_Analyzing")
             self.read_response()  # Optional: read initial response
-
+            timestamp_beginning = datetime.now().timestamp()
+            csv_path = os.path.join(self.log_dir, f"data_{timestamp_beginning}.csv")
+            
             while True:
                 time.sleep(1)
-                timestamp = datetime.now().timestamp()
-                csv_path = os.path.join(self.log_dir, f"data_{timestamp}.csv")
+                # timestamp = datetime.now().timestamp()
+                # csv_path = os.path.join(self.log_dir, f"data_{timestamp}.csv")
 
                 self.send_action_message("FaceReader_Start_DetailedLogSending")
                 self.receive_and_log(csv_path)
@@ -217,3 +262,20 @@ if __name__ == '__main__':
         server_url = config_data["SERVER_URL"],
         log_dir='logs'
     )
+    
+    connector.connect()
+    # connector.start_session()
+    # connector.stop_session()
+    
+    # Create and start a new thread to run start_session
+    session_thread = threading.Thread(target=connector.start_session)
+    session_thread.start()
+
+    # Let the session run for a certain period
+    time.sleep(4)  # Adjust the sleep time as needed
+
+    # Stop the session by modifying the global variable
+    connector.stop_session()
+
+    # Wait for the session thread to finish
+    session_thread.join()
