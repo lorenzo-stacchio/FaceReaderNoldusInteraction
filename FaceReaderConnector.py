@@ -18,6 +18,7 @@ class FaceReaderConnector:
         os.makedirs(self.log_dir, exist_ok=True)
         self.sock = None
         self.log_enabled_global = False
+        self.offset_send_seconds = 1
 
     def connect(self):
         """Establish a connection to the FaceReader server."""
@@ -135,7 +136,7 @@ class FaceReaderConnector:
                 print("XML parsing error:", e)
                 continue
 
-    def push_to_server(self, csv_path):
+    def push_to_server(self, csv_path, timestamp_start, timestamp_end):
         column_names = ['Frame', 'FrameTicks', 'Feature', 'Attribute', 'Value', 'Timestamp']
         try:
             df = pd.read_csv(csv_path, header=None, names=column_names)
@@ -153,6 +154,16 @@ class FaceReaderConnector:
             (df['Attribute'] == 'Value') &
             (df['Feature'].isin(emotions))
         ]
+        
+        ## FILTER BY TIMESTAMP
+        emotion_df['Timestamp'] = emotion_df['Timestamp'].astype(float)
+
+        # Filter by timestamp range
+        emotion_df = emotion_df[
+            (emotion_df['Timestamp'] >= timestamp_start) &
+            (emotion_df['Timestamp'] <= timestamp_end)
+        ]
+
         max_idx = emotion_df['Value'].astype(float).idxmax()
 
         # Retrieve the dominant emotion and its intensity
@@ -172,8 +183,14 @@ class FaceReaderConnector:
             'emotion': dominant_emotion,
             'intensity': dominant_value,
             'valence': valence,
-            'arousal': arousal
+            'arousal': arousal,
+            'timestamp_actual':timestamp_end,
         }
+        
+        ### SEND TO SERVER
+        response = requests.post(self.server_url + "/submit_emotion", json=emotion_data)
+        # Print the server's response
+        print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
 
 
     def set_log_dir(self, user_name):
@@ -195,14 +212,20 @@ class FaceReaderConnector:
             self.log_enabled_global = True
             timestamp_beginning = datetime.now().timestamp()
             csv_path = os.path.join(self.log_dir, f"data_{timestamp_beginning}.csv")
-            
+
+            time_stamp_check_offset = datetime.now().timestamp()
+
             while self.log_enabled_global:
-                time.sleep(1) ## TODO: controllare qui
                 self.send_action_message("FaceReader_Start_DetailedLogSending")
                 timestamp_actual = datetime.now().timestamp()
+                
+
                 self.receive_and_log(csv_path, timestamp_actual)
-                self.push_to_server(csv_path)
                 self.send_action_message("FaceReader_Stop_DetailedLogSending")
+                timestamp_loop = datetime.now().timestamp()
+                if timestamp_loop > (time_stamp_check_offset + self.offset_send_seconds):
+                    self.push_to_server(csv_path, time_stamp_check_offset, timestamp_loop)
+                    time_stamp_check_offset = timestamp_loop
                 if not self.log_enabled_global:
                     break
                
@@ -222,35 +245,6 @@ class FaceReaderConnector:
             print("Error.")
         # finally:
         #     self.disconnect()
-
-
-    def run_analysis_session(self):
-        """
-        Manages the analysis session: connects to FaceReader, starts analysis,
-        receives logs, pushes data to the server, and stops analysis.
-        """
-        try:
-            self.connect()
-            self.send_action_message("FaceReader_Start_Analyzing")
-            self.read_response()  # Optional: read initial response
-            timestamp_beginning = datetime.now().timestamp()
-            csv_path = os.path.join(self.log_dir, f"data_{timestamp_beginning}.csv")
-            
-            while True:
-                time.sleep(1)
-                # timestamp = datetime.now().timestamp()
-                # csv_path = os.path.join(self.log_dir, f"data_{timestamp}.csv")
-
-                self.send_action_message("FaceReader_Start_DetailedLogSending")
-                self.receive_and_log(csv_path)
-                self.push_to_server(csv_path)
-                self.send_action_message("FaceReader_Stop_DetailedLogSending")
-        except KeyboardInterrupt:
-            print("Analysis session interrupted by user.")
-            self.send_action_message("FaceReader_Stop_Analyzing")
-        finally:
-            self.disconnect()
-
 
 
 if __name__ == '__main__':

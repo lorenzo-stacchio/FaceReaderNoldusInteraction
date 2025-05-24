@@ -33,12 +33,14 @@ class FaceReaderApp(App):
         # Implement the logic to send data to the server
         self.global_session = threading.Thread(target=self.FaceReaderCon.start_session)
         self.global_session.start()
-        
+        self.log_input.text = f"Start Sending LLAMA Server"        
+
     def stop_send_to_server(self, instance):
         # Implement the logic to stop sending data to the server
-        self.FaceReaderCon.stop_session()
-        self.global_session.join()
-        print("ciao")
+        if self.FaceReaderCon.sock:
+            self.FaceReaderCon.stop_session()
+            self.global_session.join()
+            self.log_input.text = f"Stop Sending LLAMA Server"        
 
         
     def set_log_dir(self, instance):
