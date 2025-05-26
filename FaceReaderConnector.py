@@ -163,7 +163,10 @@ class FaceReaderConnector:
             (emotion_df['Timestamp'] >= timestamp_start) &
             (emotion_df['Timestamp'] <= timestamp_end)
         ]
-
+        if len(emotion_df) == 0:
+            print("No recent emotions, skip")
+            return
+        
         max_idx = emotion_df['Value'].astype(float).idxmax()
 
         # Retrieve the dominant emotion and its intensity
