@@ -3,6 +3,8 @@
 
 Python version: 3.10.16
 
+
+
 ## INSTALL CONDA FOR WINDOWS
 
 https://docs.conda.io/projects/conda/en/stable/user-guide/install/windows.html
@@ -10,8 +12,8 @@ https://docs.conda.io/projects/conda/en/stable/user-guide/install/windows.html
 Install Miniconda, it should do the work!
 
 
-## INSTALL CONDA ENVIRONMENT
 
+## INSTALL CONDA ENVIRONMENT
 
 ```conda create -n facereader_env python=3.10.16```
 
