@@ -47,15 +47,21 @@ class FaceReaderApp(App):
         self.FaceReaderCon.set_log_dir(f"{self.log_name.text}")
         self.log_input.text = f"Name and surname set to: {self.log_name.text}"
     
-    
+    def restart_server(self, instance):
+        response = self.FaceReaderCon.restart_server()
+        self.log_input.text = f"{response}"
+        
     
     def build(self):
         main_layout = BoxLayout(orientation='vertical', spacing=1)
         main_layout.add_widget(Label(text='Face Reader Control Panel', font_size=20, halign='center'))
-
+        btn_restart = Button(text='Restart server', on_press = self.restart_server, padding=10)
+        # grid_layout1 = GridLayout(cols=1, spacing=10, padding=10)
+        main_layout.add_widget(btn_restart)
+        
+        # Row 2: Connect and Disconnect buttons
         grid_layout = GridLayout(cols=2, spacing=10, padding=10)
 
-        # Row 2: Connect and Disconnect buttons
         # label_name = Label(text='Insert here name and surname', font_size=20, halign='center')
         self.log_name = TextInput(hint_text='Insert here name and surname', multiline=True)
         

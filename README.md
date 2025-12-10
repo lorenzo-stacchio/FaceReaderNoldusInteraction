@@ -19,7 +19,7 @@ Install Miniconda, it should do the work!
 
 ```conda activate facereader_env```
 
-```pip install -r requirements```
+```pip install -r requirements.txt```
 
 
 ## Execute main GUI

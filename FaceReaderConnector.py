@@ -36,7 +36,8 @@ class FaceReaderConnector:
             self.sock.close()
             self.sock = None
             print("Disconnected from FaceReader.")
-
+    
+    
     def build_packet(self, message_type: str, xml_string: str) -> bytes:
         """Construct the message bytes according to FaceReader format."""
         type_bytes = message_type.encode('utf-8')
@@ -201,9 +202,13 @@ class FaceReaderConnector:
         os.makedirs(self.log_dir, exist_ok = True)
         response = requests.post(self.server_url  + "/set_current_user", json={"user_name":user_name})
         print(response)
-            
+    
+    def restart_server(self):
+        response = requests.get(self.server_url  + "/restart_chat")
+        return response.json()["url"]
 
     def start_session(self):
+        
         """
         Manages the analysis session: connects to FaceReader, starts analysis,
         receives logs, pushes data to the server, and stops analysis.
