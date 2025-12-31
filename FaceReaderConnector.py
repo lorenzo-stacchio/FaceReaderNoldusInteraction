@@ -202,6 +202,10 @@ class FaceReaderConnector:
         os.makedirs(self.log_dir, exist_ok = True)
         response = requests.post(self.server_url  + "/set_current_user", json={"user_name":user_name})
         return response
+
+    def set_stimuli(self, stimuli):
+        response = requests.post(self.server_url  + "/set_current_stimuli", json={"stimuli":stimuli})
+        return response.json()["log"]
     
     def aggregate_emotions(self):
         response = requests.get(self.server_url  + "/aggregate_emotions")
