@@ -201,7 +201,14 @@ class FaceReaderConnector:
         self.log_dir = f"logs/{user_name}"
         os.makedirs(self.log_dir, exist_ok = True)
         response = requests.post(self.server_url  + "/set_current_user", json={"user_name":user_name})
-        print(response)
+        return response
+    
+    def aggregate_emotions(self):
+        response = requests.get(self.server_url  + "/aggregate_emotions")
+        to_return = response.json()["log"]
+        requests.post(self.server_url + "/submit_chat_log", json={"VALUE": "Emotions Aggregated for Prompt", "LOGTYPE": "EMOTIONS_AGGREGATED", "mode": "emotion conditioning"})
+        return to_return
+
     
     def restart_server(self):
         response = requests.get(self.server_url  + "/restart_chat")
@@ -226,8 +233,6 @@ class FaceReaderConnector:
             while self.log_enabled_global:
                 self.send_action_message("FaceReader_Start_DetailedLogSending")
                 timestamp_actual = datetime.now().timestamp()
-                
-
                 self.receive_and_log(csv_path, timestamp_actual)
                 self.send_action_message("FaceReader_Stop_DetailedLogSending")
                 timestamp_loop = datetime.now().timestamp()

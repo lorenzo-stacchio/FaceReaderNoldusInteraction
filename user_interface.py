@@ -7,6 +7,7 @@ from kivy.uix.textinput import TextInput
 from FaceReaderConnector import FaceReaderConnector
 import json 
 import threading
+from kivy.uix.widget import Widget
 
 class FaceReaderApp(App):
     
@@ -42,6 +43,9 @@ class FaceReaderApp(App):
             self.global_session.join()
             self.log_input.text = f"Stop Sending LLAMA Server"        
 
+    def aggregate_emotions(self, instance):
+        response = self.FaceReaderCon.aggregate_emotions()
+        self.log_input.text = response
         
     def set_log_dir(self, instance):
         self.FaceReaderCon.set_log_dir(f"{self.log_name.text}")
@@ -60,7 +64,7 @@ class FaceReaderApp(App):
         main_layout.add_widget(btn_restart)
         
         # Row 2: Connect and Disconnect buttons
-        grid_layout = GridLayout(cols=2, spacing=10, padding=10)
+        grid_layout = GridLayout(cols=3, spacing=10, padding=10)
 
         # label_name = Label(text='Insert here name and surname', font_size=20, halign='center')
         self.log_name = TextInput(hint_text='Insert here name and surname', multiline=True)
@@ -70,16 +74,28 @@ class FaceReaderApp(App):
         # grid_layout.add_widget(label_name,)
         grid_layout.add_widget(self.log_name)
         grid_layout.add_widget(btn_save_name_surname)
+        grid_layout.add_widget(Widget())
 
 
         grid_layout.add_widget(Button(text='Connect to Face Reader', on_press = self.connect_to_face_reader))
         grid_layout.add_widget(Button(text='Disconnect from Face Reader', on_press = self.disconnect_from_face_reader))
+        grid_layout.add_widget(Widget())
 
         # Row 3: Send and Stop buttons
-        grid_layout.add_widget(Button(text='Send to Server', on_press = self.send_to_server))
-        grid_layout.add_widget(Button(text='Stop Sending to Server', on_press = self.stop_send_to_server))
+        grid_layout.add_widget(Button(text='Send to Server (video)', on_press = self.send_to_server))
+        grid_layout.add_widget(Button(text='Stop Sending to Server(video)', on_press = self.stop_send_to_server))
+        grid_layout.add_widget(Button(text='Aggregate Emotions (video)', on_press = self.aggregate_emotions))
 
-        
+        # Row 4: Send and Stop buttons
+        grid_layout.add_widget(Button(text='Send to Server (CHAT)', on_press = self.send_to_server))
+        grid_layout.add_widget(Button(text='Stop Sending to Server(CHAT)', on_press = self.stop_send_to_server))
+        grid_layout.add_widget(Widget())
+
+
+        grid_layout.add_widget(Button(text='Send to Server (video)', on_press = self.send_to_server))
+        grid_layout.add_widget(Button(text='Stop Sending to Server(video)', on_press = self.stop_send_to_server))
+        grid_layout.add_widget(Widget())
+
         # Row 4: Log field spanning two columns using BoxLayout
         h_box_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=50)
         self.log_input = TextInput(hint_text='Logs will appear here...', multiline=True)
@@ -90,9 +106,9 @@ class FaceReaderApp(App):
 
         return main_layout
 
+
 if __name__ == '__main__':
-    config_data = json.load(open("config.json"))
-    
+    config_data = json.load(open("config.json"))    
     connector = FaceReaderConnector(
         host=config_data["HOST"],
         port=config_data["PORT"],
