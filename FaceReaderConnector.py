@@ -8,6 +8,9 @@ import pandas as pd
 import requests
 import os
 import threading
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import requests
 
 class FaceReaderConnector:
     def __init__(self, host=None, port=None, server_url=None, log_dir='logs'):
@@ -18,8 +21,45 @@ class FaceReaderConnector:
         os.makedirs(self.log_dir, exist_ok=True)
         self.sock = None
         self.log_enabled_global = False
-        self.offset_send_seconds = 0
+        self.offset_send_seconds = 1
 
+        # self.http = requests.Session()
+        # self.http.trust_env = False  # avoids Windows proxy/AV issues in many cases
+        # retry = Retry(
+        #     total=5,
+        #     connect=5,
+        #     read=5,
+        #     backoff_factor=0.5,
+        #     status_forcelist=(429, 500, 502, 503, 504),
+        #     allowed_methods=frozenset(["POST", "GET"]),
+        #     raise_on_status=False,
+        # )
+        # adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+        # self.http.mount("https://", adapter)
+        # self.http.mount("http://", adapter)
+        
+    # def _post(self, path: str, payload: dict) -> bool:
+    #     url = self.server_url.rstrip("/") + path
+    #     try:
+    #         r = self.http.post(
+    #             url,
+    #             json=payload,
+    #             timeout=(3.05, 10),              # connect, read
+    #             headers={"Connection": "close"}, # reduces flaky keep-alive behavior with some middleboxes
+    #         )
+    #         # If you want to treat non-2xx as failure:
+    #         if r.status_code >= 400:
+    #             print(f"[WARN] {url} -> {r.status_code}: {r.text[:200]}")
+    #             return False
+    #         return True
+    #     except requests.exceptions.SSLError as e:
+    #         # This is your SSLEOF case: log and continue instead of killing the thread
+    #         print(f"[WARN] SSL error posting to {url}: {e}")
+    #         return False
+    #     except requests.exceptions.RequestException as e:
+    #         print(f"[WARN] Request error posting to {url}: {e}")
+    #         return False
+    
     def connect(self):
         """Establish a connection to the FaceReader server."""
         # try:
@@ -236,6 +276,7 @@ class FaceReaderConnector:
         arousal_map = per_frame_lookup('Arousal')
 
         # 2) PUSH ONE REQUEST PER FRAME CONSIDERED
+        ACC_EMOTION_DATA = []
         for _, r in dom_per_frame.iterrows():
             frame_id = r['Frame']
             dominant_emotion = r['Feature']
@@ -252,6 +293,7 @@ class FaceReaderConnector:
                 'arousal': arousal,
                 'timestamp_actual': float(r['Timestamp']),  # per-frame timestamp
             }
+            ACC_EMOTION_DATA.append(emotion_data)
 
             # send it (replace with your actual request call)
             # self._post_emotion(emotion_data)
@@ -263,10 +305,14 @@ class FaceReaderConnector:
             # # Print the server's response
             # print(f"Sent: {emotion_df}, Received: {response.status_code}, {response.text}")
             
-            response = requests.post(self.server_url + "/submit_emotion", json=emotion_data)
-            # Print the server's response
-            print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
-
+        response = requests.post(self.server_url + "/submit_emotion", json=ACC_EMOTION_DATA)
+        # Print the server's response
+        # ok = self._post("/submit_emotion", emotion_data)
+        # if ok:
+        #     print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
+        # else:
+        #     print("ERROR IN SENT")
+        print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
 
     def set_log_dir(self, user_name):
         self.log_dir = f"logs/{user_name}"
