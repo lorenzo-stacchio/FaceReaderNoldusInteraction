@@ -18,7 +18,7 @@ class FaceReaderConnector:
         os.makedirs(self.log_dir, exist_ok=True)
         self.sock = None
         self.log_enabled_global = False
-        self.offset_send_seconds = 1
+        self.offset_send_seconds = 0
 
     def connect(self):
         """Establish a connection to the FaceReader server."""
@@ -150,51 +150,122 @@ class FaceReaderConnector:
 
         emotions = ['Neutral', 'Happy', 'Sad', 'Angry', 'Surprised', 'Scared', 'Disgusted']
 
-        # Filter rows corresponding to emotions
-        emotion_df = df[
-            (df['Attribute'] == 'Value') &
-            (df['Feature'].isin(emotions))
-        ]
+        # # Filter rows corresponding to emotions
+        # emotion_df = df[
+        #     (df['Attribute'] == 'Value') &
+        #     (df['Feature'].isin(emotions))
+        # ]
         
-        ## FILTER BY TIMESTAMP
-        emotion_df['Timestamp'] = emotion_df['Timestamp'].astype(float)
+        # ## FILTER BY TIMESTAMP
+        # emotion_df['Timestamp'] = emotion_df['Timestamp'].astype(float)
 
-        # Filter by timestamp range
-        emotion_df = emotion_df[
-            (emotion_df['Timestamp'] >= timestamp_start) &
-            (emotion_df['Timestamp'] <= timestamp_end)
-        ]
-        if len(emotion_df) == 0:
+        # # Filter by timestamp range
+        # emotion_df = emotion_df[
+        #     (emotion_df['Timestamp'] >= timestamp_start) &
+        #     (emotion_df['Timestamp'] <= timestamp_end)
+        # ]
+        
+        # if len(emotion_df) == 0:
+        #     print("No recent emotions, skip")
+        #     return
+        # print(emotion_df)
+        # # exit()
+        
+        # max_idx = emotion_df['Value'].astype(float).idxmax()
+
+        # # Retrieve the dominant emotion and its intensity
+        # dominant_emotion = emotion_df.loc[max_idx, 'Feature']
+        # dominant_value = float(emotion_df.loc[max_idx, 'Value'])
+
+        # # Extract valence value
+        # valence_row = df[(df['Feature'] == 'Valence') & (df['Attribute'] == 'Value')]
+        # valence = float(valence_row['Value'].values[0]) if not valence_row.empty else None
+
+        # # Extract arousal value
+        # arousal_row = df[(df['Feature'] == 'Arousal') & (df['Attribute'] == 'Value')]
+        # arousal = float(arousal_row['Value'].values[0]) if not arousal_row.empty else None
+
+        # # Prepare data to send
+        # emotion_data = {
+        #     'emotion': dominant_emotion,
+        #     'intensity': dominant_value,
+        #     'valence': valence,
+        #     'arousal': arousal,
+        #     'timestamp_actual':timestamp_end,
+        # }
+        
+         # Ensure numeric types where needed
+        df = df.copy()
+        df['Timestamp'] = pd.to_numeric(df['Timestamp'], errors='coerce')
+        df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
+
+        # Filter by timestamp range (apply to all features so valence/arousal align per frame)
+        df_win = df[(df['Timestamp'] >= timestamp_start) & (df['Timestamp'] <= timestamp_end)].copy()
+        if df_win.empty:
+            print("No recent data in timestamp window, skip")
+            return
+
+        # Emotion rows in window
+        emotion_df = df_win[
+            (df_win['Attribute'] == 'Value') &
+            (df_win['Feature'].isin(emotions)) &
+            (df_win['Value'].notna())
+        ].copy()
+
+        if emotion_df.empty:
             print("No recent emotions, skip")
             return
-        
-        max_idx = emotion_df['Value'].astype(float).idxmax()
 
-        # Retrieve the dominant emotion and its intensity
-        dominant_emotion = emotion_df.loc[max_idx, 'Feature']
-        dominant_value = float(emotion_df.loc[max_idx, 'Value'])
+        # 1) GROUP BY FRAME -> pick max emotion per frame
+        # idxmax per group gives the row index of the max Value within each Frame
+        idx = emotion_df.groupby('Frame')['Value'].idxmax()
+        dom_per_frame = emotion_df.loc[idx].copy()
 
-        # Extract valence value
-        valence_row = df[(df['Feature'] == 'Valence') & (df['Attribute'] == 'Value')]
-        valence = float(valence_row['Value'].values[0]) if not valence_row.empty else None
+        # Optional: process in temporal order
+        dom_per_frame = dom_per_frame.sort_values(['Timestamp', 'Frame'])
 
-        # Extract arousal value
-        arousal_row = df[(df['Feature'] == 'Arousal') & (df['Attribute'] == 'Value')]
-        arousal = float(arousal_row['Value'].values[0]) if not arousal_row.empty else None
+        # Precompute valence/arousal lookup per frame (within the same window)
+        def per_frame_lookup(feature_name: str):
+            tmp = df_win[(df_win['Feature'] == feature_name) & (df_win['Attribute'] == 'Value')].copy()
+            tmp = tmp.dropna(subset=['Value'])
+            # If multiple per frame, keep the last by timestamp
+            tmp = tmp.sort_values(['Frame', 'Timestamp']).groupby('Frame', as_index=False).tail(1)
+            return dict(zip(tmp['Frame'], tmp['Value']))
 
-        # Prepare data to send
-        emotion_data = {
-            'emotion': dominant_emotion,
-            'intensity': dominant_value,
-            'valence': valence,
-            'arousal': arousal,
-            'timestamp_actual':timestamp_end,
-        }
-        
-        ### SEND TO SERVER
-        response = requests.post(self.server_url + "/submit_emotion", json=emotion_data)
-        # Print the server's response
-        print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
+        valence_map = per_frame_lookup('Valence')
+        arousal_map = per_frame_lookup('Arousal')
+
+        # 2) PUSH ONE REQUEST PER FRAME CONSIDERED
+        for _, r in dom_per_frame.iterrows():
+            frame_id = r['Frame']
+            dominant_emotion = r['Feature']
+            dominant_value = float(r['Value'])
+
+            valence = float(valence_map.get(frame_id)) if frame_id in valence_map else None
+            arousal = float(arousal_map.get(frame_id)) if frame_id in arousal_map else None
+
+            emotion_data = {
+                'frame': int(frame_id) if pd.notna(frame_id) else frame_id,
+                'emotion': dominant_emotion,
+                'intensity': dominant_value,
+                'valence': valence,
+                'arousal': arousal,
+                'timestamp_actual': float(r['Timestamp']),  # per-frame timestamp
+            }
+
+            # send it (replace with your actual request call)
+            # self._post_emotion(emotion_data)
+            # or requests.post(self.server_url, json=emotion_data)
+            # print("PUSH:", emotion_data)
+            ### SEND TO SERVER
+            
+            # response = requests.post(self.server_url + "/submit_emotion", json=emotion_df.to_json(orient="records"))
+            # # Print the server's response
+            # print(f"Sent: {emotion_df}, Received: {response.status_code}, {response.text}")
+            
+            response = requests.post(self.server_url + "/submit_emotion", json=emotion_data)
+            # Print the server's response
+            print(f"Sent: {emotion_data}, Received: {response.status_code}, {response.text}")
 
 
     def set_log_dir(self, user_name):
